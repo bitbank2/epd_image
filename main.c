@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 enum
 {
@@ -19,19 +20,19 @@ enum
   OPTION_4GRAY,
   OPTION_COUNT
 };
-
+// How many hex bytes are written per line of output
+#define BYTES_PER_LINE 16
 const char *szOptions[] = {"BW", "BWR", "BWY", "4GRAY", NULL};
 uint8_t ucBlue[256], ucGreen[256], ucRed[256]; // palette colors
 #ifdef _WIN32
-#define PILIO_SLASH_CHAR '\\'
+#define SLASH_CHAR '\\'
 #else
-#define PILIO_SLASH_CHAR '/'
+#define SLASH_CHAR '/'
 #endif
 
 typedef unsigned char BOOL;
 
 FILE * ihandle;
-void MakeC(unsigned char *, int, int);
 void GetLeafName(char *fname, char *leaf);
 void FixName(char *name);
 
@@ -90,6 +91,75 @@ int ReadBMP(uint8_t *pBMP, int *offbits, int *width, int *height, int *bpp)
     return 1;
 } /* ReadBMP() */
 
+void MakeC_BW(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp, int iSize, FILE *ohandle, char *szLeaf)
+{
+	int iSrcPitch, iPitch, iDelta;
+        int iIn, iTotal, iLine, iOut;
+	uint8_t *s = &pSrc[iOffBits];
+
+	iSrcPitch = iPitch = ((iBpp * iWidth) + 7)/8;
+	iSrcPitch = (iSrcPitch + 3) & 0xfffc; // Windows BMP lines are dword aligned
+	iDelta = iSrcPitch - iPitch;
+	iTotal = iPitch * iHeight; // how many bytes we're creating
+	// show pitch
+	fprintf(ohandle, "// Image size: width %d, height %d\n", iWidth, iHeight);
+	fprintf(ohandle, "// %d bytes per line\n", iPitch);
+	fprintf(ohandle, "// %d bytes per plane\n", iTotal);
+	switch (iBpp) {
+		case 1: // easiest case (bit/byte order is identical to e-paper)
+		    fprintf(ohandle, "const uint8_t %s_0[] PROGMEM = {\n", szLeaf); // start of data array (plane 0)
+                iOut = iLine = iIn = 0;
+                for (int i=0; i<iTotal; i++) {
+                    fprintf(ohandle, "0x%02x", (~s[iIn++]) & 0xff); // first plane is inverted
+		    if (iLine == BYTES_PER_LINE-1 || i == iTotal-1) {
+			    fprintf(ohandle, "\n");
+                            iLine = -1;
+	            } else {
+			    fprintf(ohandle, ",");
+		    }
+		    iLine++;
+		    iOut++;
+		    if (iOut == iPitch) {
+			    iIn += iDelta;
+			    iOut = 0;
+		    }
+		}
+		break;
+
+		case 4:
+		break;
+
+		case 8:
+		break;
+
+		case 24:
+		case 32:
+		break;
+	} // source image bits per pixel
+} /* MakeC_BW() */
+//
+// flip image vertically
+//
+void FlipBMP(uint8_t *p, int iWidth, int iHeight, int iBpp)
+{
+int iPitch;
+uint8_t c, *s, *d;
+
+	iPitch = ((iWidth*iBpp)+7)/8;
+	iPitch = (iPitch + 3) & 0xfffc;
+	s = p;
+	d = &p[iPitch * (iHeight-1)];
+	for (int y=0; y<iHeight/2; y++) {
+           for (int x=0; x<iPitch; x++) {
+              c = s[x];
+	      s[x] = d[x];
+	      d[x] = c; // swap top/bottom lines
+	   }
+	   s += iPitch;
+	   d -= iPitch;
+	}
+} /* FlipBMP() */
+
 //
 // Main program entry point
 //
@@ -101,15 +171,15 @@ int main(int argc, char *argv[])
     int iOption = OPTION_BW; // default
     unsigned char *p;
     char szLeaf[256];
+    char szOutName[256];
     
-    if (argc < 2 || argc > 3)
+    if (argc < 3 || argc > 4)
     {
         printf("epd_image Copyright (c) 2023 BitBank Software, Inc.\n");
         printf("Written by Larry Bank\n\n");
-        printf("Usage: epd_image <option> <filename>\n");
-        printf("output is written to stdout\n");
+        printf("Usage: epd_image <option> <infile> <outfile>\n");
         printf("example:\n\n");
-        printf("epd_image --BW ./test.bmp > test.h\n");
+        printf("epd_image --BW ./test.bmp test.h\n");
 	printf("valid options (defaults to BW):\n");
 	printf("BW = create output for black/white displays\n");
 	printf("BWR = create output for black/white/red displays\n");
@@ -144,64 +214,48 @@ int main(int argc, char *argv[])
     if (ReadBMP(p, &iOffBits, &iWidth, &iHeight, &iBpp) == 0) {
 	    printf("Invalid BMP file, exiting...\n");
 	    return -1;
-    } else {
-	    printf("BMP loaded: width %d, height %d, bpp %d\n", iWidth, iHeight, iBpp);
     }
-    GetLeafName(argv[1], szLeaf);
-    printf("// Created with epd_image\n// https://github.com/bitbank2/epd_image\n");
-    printf("//\n// %s\n//\n", szLeaf); // comment header with filename
+    if (iHeight > 0) FlipBMP(&p[iOffBits], iWidth, iHeight, iBpp); // positive means bottom-up
+    else iHeight = -iHeight; // negative means top-down
+    GetLeafName(argv[iNameParam], szLeaf);
+    if (argv[iNameParam+1][0] != SLASH_CHAR) { // need to form full name
+       if (getcwd(szOutName, sizeof(szOutName))) {
+	  int i;
+	  i = strlen(szOutName);
+          szOutName[i] = SLASH_CHAR;
+	  szOutName[i+1] = 0;
+          strcat(szOutName, argv[iNameParam+1]);
+       }
+    } else {
+       strcpy(szOutName, argv[iNameParam+1]);
+    }
+    ihandle = fopen(szOutName, "wb");
+    if (ihandle == NULL) {
+       printf("Error creating output file: %s\n", szOutName);
+       return -1;
+    }
+    fprintf(ihandle, "//\n// Created with epd_image\n// https://github.com/bitbank2/epd_image\n");
+    fprintf(ihandle, "//\n// %s\n//\n", szLeaf); // comment header with filename
     FixName(szLeaf); // remove unusable characters
-    printf("// for non-Arduino builds...\n");
-    printf("#ifndef PROGMEM\n#define PROGMEM\n#endif\n");
-    printf("const uint8_t %s[] PROGMEM = {\n", szLeaf); // start of data array
-    //MakeC(p, iData, iSize == iData); // create the output data
+    fprintf(ihandle, "// for non-Arduino builds...\n");
+    fprintf(ihandle, "#ifndef PROGMEM\n#define PROGMEM\n#endif\n");
+    switch (iOption) {
+	    case OPTION_BW:
+               MakeC_BW(p, iOffBits, iWidth, iHeight, iBpp, iSize, ihandle, szLeaf); // create the output data
+	    break;
+	    case OPTION_BWR:
+	    break;
+	    case OPTION_BWY:
+	    break;
+	    case OPTION_4GRAY:
+	    break;
+    } // switch	   
+    fprintf(ihandle, "};\n"); // final closing brace
+    fflush(ihandle);
+    fclose(ihandle);
     free(p);
-    printf("};\n"); // final closing brace
     return 0;
 } /* main() */
-//
-// Generate C hex characters from each byte of file data
-//
-void MakeC(unsigned char *p, int iLen, int bLast)
-{
-    int i, j, iCount;
-    char szTemp[256], szOut[256];
-    
-    iCount = 0;
-    for (i=0; i<iLen>>4; i++) // do lines of 16 bytes
-    {
-        strcpy(szOut, "\t");
-        for (j=0; j<16; j++)
-        {
-            if (iCount == iLen-1 && bLast) // last one, skip the comma
-                sprintf(szTemp, "0x%02x", p[(i*16)+j]);
-            else
-                sprintf(szTemp, "0x%02x,", p[(i*16)+j]);
-            strcat(szOut, szTemp);
-            iCount++;
-        }
-        if (!bLast || iCount != iLen)
-            strcat(szOut, "\n");
-        printf("%s",szOut);
-    }
-    p += (iLen & 0xfff0); // point to last section
-    if (iLen & 0xf) // any remaining characters?
-    {
-        strcpy(szOut, "\t");
-        for (j=0; j<(iLen & 0xf); j++)
-        {
-            if (iCount == iLen-1 && bLast)
-                sprintf(szTemp, "0x%02x", p[j]);
-            else
-                sprintf(szTemp, "0x%02x,", p[j]);
-            strcat(szOut, szTemp);
-            iCount++;
-        }
-        if (!bLast)
-            strcat(szOut, "\n");
-        printf("%s",szOut);
-    }
-} /* MakeC() */
 //
 // Make sure the name can be used in C/C++ as a variable
 // replace invalid characters and make sure it starts with a letter
