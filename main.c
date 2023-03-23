@@ -91,7 +91,7 @@ int ReadBMP(uint8_t *pBMP, int *offbits, int *width, int *height, int *bpp)
     return 1;
 } /* ReadBMP() */
 
-void MakeC_BW(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp, int iSize, FILE *ohandle, char *szLeaf)
+void MakeC_BW(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iSize, FILE *ohandle, char *szLeaf)
 {
 	int iSrcPitch, iPitch, iDelta;
         int iIn, iTotal, iLine, iOut;
@@ -105,9 +105,7 @@ void MakeC_BW(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp, in
 	fprintf(ohandle, "// Image size: width %d, height %d\n", iWidth, iHeight);
 	fprintf(ohandle, "// %d bytes per line\n", iPitch);
 	fprintf(ohandle, "// %d bytes per plane\n", iTotal);
-	switch (iBpp) {
-		case 1: // easiest case (bit/byte order is identical to e-paper)
-		    fprintf(ohandle, "const uint8_t %s_0[] PROGMEM = {\n", szLeaf); // start of data array (plane 0)
+        fprintf(ohandle, "const uint8_t %s_0[] PROGMEM = {\n", szLeaf); // start of data array (plane 0)
                 iOut = iLine = iIn = 0;
                 for (int i=0; i<iTotal; i++) {
                     fprintf(ohandle, "0x%02x", (~s[iIn++]) & 0xff); // first plane is inverted
@@ -124,18 +122,6 @@ void MakeC_BW(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp, in
 			    iOut = 0;
 		    }
 		}
-		break;
-
-		case 4:
-		break;
-
-		case 8:
-		break;
-
-		case 24:
-		case 32:
-		break;
-	} // source image bits per pixel
 } /* MakeC_BW() */
 //
 // flip image vertically
@@ -215,6 +201,11 @@ int main(int argc, char *argv[])
 	    printf("Invalid BMP file, exiting...\n");
 	    return -1;
     }
+    if (iOption == OPTION_BW && iBpp != 1) {
+         printf("Input image for OPTION_BW must be 1-bit per pixel\n");
+	 printf("aborting...\n");
+	 return -1;
+    }
     if (iHeight > 0) FlipBMP(&p[iOffBits], iWidth, iHeight, iBpp); // positive means bottom-up
     else iHeight = -iHeight; // negative means top-down
     GetLeafName(argv[iNameParam], szLeaf);
@@ -248,6 +239,7 @@ int main(int argc, char *argv[])
 	    case OPTION_BWY:
 	    break;
 	    case OPTION_4GRAY:
+	       MakeC_4GRAY(p, iOffBits, iWidth, iHeight, iBpp, iSize, ihandle, szLeaf);
 	    break;
     } // switch	   
     fprintf(ihandle, "};\n"); // final closing brace
