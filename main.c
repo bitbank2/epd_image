@@ -97,7 +97,7 @@ void MakeC_BW(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iSize, F
         int iIn, iTotal, iLine, iOut;
 	uint8_t *s = &pSrc[iOffBits];
 
-	iSrcPitch = iPitch = ((iBpp * iWidth) + 7)/8;
+	iSrcPitch = iPitch = (iWidth + 7)/8;
 	iSrcPitch = (iSrcPitch + 3) & 0xfffc; // Windows BMP lines are dword aligned
 	iDelta = iSrcPitch - iPitch;
 	iTotal = iPitch * iHeight; // how many bytes we're creating
@@ -122,7 +122,99 @@ void MakeC_BW(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iSize, F
 			    iOut = 0;
 		    }
 		}
+    fprintf(ihandle, "};\n"); // final closing brace
 } /* MakeC_BW() */
+unsigned char GetGrayPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
+{
+    uint8_t uc, *s;
+    int r, g, b;
+    
+    switch (iBpp) {
+        case 1:
+            s = &pData[(y * iPitch) + (x >> 3)];
+            uc = s[0];
+            uc >>= (x & 7);
+            uc |= (uc << 1); // only black/white (00/11)
+            break;
+        case 4:
+            s = &pData[(y * iPitch) + (x >> 1)];
+            uc = s[0];
+            if ((x & 1) == 0) uc >>= 4;
+            uc &= 0xf;
+            b = ucBlue[uc];
+            g = ucGreen[uc];
+            r = ucRed[uc];
+            b = ((b + g + r*2) >> 2); // simple grayscale
+            uc = (uint8_t)(b >> 6); // top 2 bits are the gray level
+            break;
+        case 8:
+            s = &pData[(y * iPitch) + x];
+            uc = s[0];
+            b = ucBlue[uc];
+            g = ucGreen[uc];
+            r = ucRed[uc];
+            b = ((b + g + r*2) >> 2); // simple grayscale
+            uc = (uint8_t)(b >> 6); // top 2 bits are the gray level
+            break;
+        case 24:
+        case 32:
+            s = &pData[(y * iPitch) + ((x * iBpp)>>3)];
+            b = s[0];
+            g = s[1];
+            r = s[2];
+            b = ((b + g + r*2) >> 2); // simple grayscale
+            uc = (uint8_t)(b >> 6); // top 2 bits are the gray level
+            break;
+    } // switch on bpp
+    return uc;
+} /* GetGrayPixel() */
+//
+// Convert 2-bit grayscale (4GRAY) into 2-plane output
+//
+void MakeC_4GRAY(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp, int iSize, FILE *ohandle, char *szLeaf)
+{
+    int iSrcPitch, iPitch;
+    int i, iPlane, x, y, iIn, iTotal, iLine;
+    uint8_t ucPixel, uc, *s = &pSrc[iOffBits];
+
+    iSrcPitch = ((iBpp * iWidth) + 7)/8;
+    iSrcPitch = (iSrcPitch + 3) & 0xfffc; // Windows BMP lines are dword aligned
+    iPitch = (iWidth + 7)/8; // bytes per line of each 1-bpp plane
+    iTotal = iPitch * iHeight; // how many bytes we're creating
+    // show pitch
+    fprintf(ohandle, "// Image size: width %d, height %d\n", iWidth, iHeight);
+    fprintf(ohandle, "// %d bytes per line\n", iPitch);
+    fprintf(ohandle, "// %d bytes per plane\n", iTotal);
+    for (iPlane=0; iPlane<2; iPlane++) {
+        fprintf(ohandle, "// Plane %d data\n", iPlane);
+        fprintf(ohandle, "const uint8_t %s_%d[] PROGMEM = {\n", szLeaf, iPlane);
+        iLine = i = iIn = 0;
+        for (y=0; y<iHeight; y++) {
+            uc = 0;
+            for (x=0; x<iWidth; x++) {
+                ucPixel = GetGrayPixel(x, y, s, iSrcPitch, iBpp); // slower, but easier on the eyes
+                uc <<= 1;
+                uc |= ((ucPixel >> iPlane) & 1); // add correct plane's bit
+                if ((x & 7) == 7 || x == iWidth-1) {
+                    if ((x & 7) != 7) { // adjust last odd byte
+                        uc <<= (7-(x&7));
+                    }
+                    i++;
+                    iLine++;
+                    fprintf(ohandle, "0x%02x", uc);
+                    if (iLine == BYTES_PER_LINE || i == iTotal-1) {
+                        fprintf(ohandle, "\n");
+                        iLine = 0;
+                    } else {
+                        fprintf(ohandle, ",");
+                    }
+                    uc = 0;
+                } // if a whole byte was formed
+            } // for x
+        } // for y
+        fprintf(ihandle, "};\n"); // final closing brace
+    } // for each plane
+} /* MakeC_4GRAY() */
 //
 // flip image vertically
 //
@@ -232,7 +324,7 @@ int main(int argc, char *argv[])
     fprintf(ihandle, "#ifndef PROGMEM\n#define PROGMEM\n#endif\n");
     switch (iOption) {
 	    case OPTION_BW:
-               MakeC_BW(p, iOffBits, iWidth, iHeight, iBpp, iSize, ihandle, szLeaf); // create the output data
+               MakeC_BW(p, iOffBits, iWidth, iHeight, iSize, ihandle, szLeaf); // create the output data
 	    break;
 	    case OPTION_BWR:
 	    break;
@@ -241,8 +333,7 @@ int main(int argc, char *argv[])
 	    case OPTION_4GRAY:
 	       MakeC_4GRAY(p, iOffBits, iWidth, iHeight, iBpp, iSize, ihandle, szLeaf);
 	    break;
-    } // switch	   
-    fprintf(ihandle, "};\n"); // final closing brace
+    } // switch
     fflush(ihandle);
     fclose(ihandle);
     free(p);
