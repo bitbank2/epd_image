@@ -1,8 +1,13 @@
 //
-// image_to_c - convert binary image files into c-compatible data tables
+// epd_image - prepare image data for e-paper displays
+// and output it as hex data ready to compile into c code
+//
+// Specifically - do pixel color matching for GRAY/BWR/BWY output
+// from any input image, split it into the 1 or 2 memory planes
+// and prepare that data to be easily compiled into C code
 //
 // Written by Larry Bank
-// Copyright (c) 2020 BitBank Software, Inc.
+// Copyright (c) 2023 BitBank Software, Inc.
 // Change history
 // 12/2/20 - Started the project
 //
@@ -22,6 +27,8 @@ enum
 };
 // How many hex bytes are written per line of output
 #define BYTES_PER_LINE 16
+
+// Output format options (black & white, black/white/red, black/white/yellow, 2-bit grayscale)
 const char *szOptions[] = {"BW", "BWR", "BWY", "4GRAY", NULL};
 uint8_t ucBlue[256], ucGreen[256], ucRed[256]; // palette colors
 #ifdef _WIN32
@@ -29,8 +36,6 @@ uint8_t ucBlue[256], ucGreen[256], ucRed[256]; // palette colors
 #else
 #define SLASH_CHAR '/'
 #endif
-
-typedef unsigned char BOOL;
 
 FILE * ihandle;
 void GetLeafName(char *fname, char *leaf);
@@ -53,7 +58,7 @@ int ParseNumber(unsigned char *buf, int *iOff, int iLength)
     
 } /* ParseNumber() */
 //
-// Parse the BMP file info and prepare for processing the pixels
+// Parse the BMP header and read the pixel data into memory
 // returns 1 for success, 0 for failure
 //
 int ReadBMP(uint8_t *pBMP, int *offbits, int *width, int *height, int *bpp)
@@ -90,7 +95,9 @@ int ReadBMP(uint8_t *pBMP, int *offbits, int *width, int *height, int *bpp)
     }
     return 1;
 } /* ReadBMP() */
-
+//
+// Create 1 memory plane hex output from 1-bit per pixel input
+//
 void MakeC_BW(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iSize, FILE *ohandle, char *szLeaf)
 {
 	int iSrcPitch, iPitch, iDelta;
@@ -105,25 +112,141 @@ void MakeC_BW(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iSize, F
 	fprintf(ohandle, "// Image size: width %d, height %d\n", iWidth, iHeight);
 	fprintf(ohandle, "// %d bytes per line\n", iPitch);
 	fprintf(ohandle, "// %d bytes per plane\n", iTotal);
-        fprintf(ohandle, "const uint8_t %s_0[] PROGMEM = {\n", szLeaf); // start of data array (plane 0)
-                iOut = iLine = iIn = 0;
-                for (int i=0; i<iTotal; i++) {
-                    fprintf(ohandle, "0x%02x", (~s[iIn++]) & 0xff); // first plane is inverted
-		    if (iLine == BYTES_PER_LINE-1 || i == iTotal-1) {
-			    fprintf(ohandle, "\n");
-                            iLine = -1;
-	            } else {
-			    fprintf(ohandle, ",");
-		    }
-		    iLine++;
-		    iOut++;
-		    if (iOut == iPitch) {
-			    iIn += iDelta;
-			    iOut = 0;
-		    }
-		}
+    fprintf(ohandle, "const uint8_t %s_0[] PROGMEM = {\n", szLeaf); // start of data array (plane 0)
+    iOut = iLine = iIn = 0;
+    for (int i=0; i<iTotal; i++) {
+        fprintf(ohandle, "0x%02x", (~s[iIn++]) & 0xff); // first plane is inverted
+        if (i != iTotal-1) {
+            fprintf(ohandle, ",");
+        }
+        if (iLine == BYTES_PER_LINE-1) {
+            fprintf(ohandle, "\n");
+            iLine = -1;
+        }
+        iLine++;
+        iOut++;
+        if (iOut == iPitch) {
+            iIn += iDelta;
+            iOut = 0;
+        }
+    } // for i
     fprintf(ihandle, "};\n"); // final closing brace
 } /* MakeC_BW() */
+//
+// Match the given pixel to black (00), white (01), or yellow (1x)
+//
+unsigned char GetYellowPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
+{
+    uint8_t uc=0, *s;
+    int gr, r, g, b;
+    
+    switch (iBpp) {
+        case 4:
+            s = &pData[(y * iPitch) + (x >> 1)];
+            uc = s[0];
+            if ((x & 1) == 0) uc >>= 4;
+            uc &= 0xf;
+            b = ucBlue[uc];
+            g = ucGreen[uc];
+            r = ucRed[uc];
+            break;
+        case 8:
+            s = &pData[(y * iPitch) + x];
+            uc = s[0];
+            b = ucBlue[uc];
+            g = ucGreen[uc];
+            r = ucRed[uc];
+            break;
+        case 24:
+        case 32:
+            s = &pData[(y * iPitch) + ((x * iBpp)>>3)];
+            b = s[0];
+            g = s[1];
+            r = s[2];
+            break;
+    } // switch on bpp
+    gr = (b + r + g*2)>>2; // gray
+    // match the color to closest of black/white/yellow
+    if (r > b && g > b) { // yellow is dominant?
+        if (gr < 100 && r < 80) {
+            // black
+        } else {
+            if (r - b > 32 && g - b > 32) {
+                // is yellow really dominant?
+                uc |= 2;
+            } else { // yellowish should be white
+                // no, use white instead of pink/yellow
+                uc |= 1;
+            }
+        }
+    } else { // check for white/black
+        if (gr >= 100) {
+            uc |= 1;
+        } else {
+            // black
+        }
+    }
+    return uc;
+} /* GetYellowPixel() */
+//
+// Match the given pixel to black (00), white (01), or red (1x)
+//
+unsigned char GetRedPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
+{
+    uint8_t ucOut=0, uc, *s;
+    int gr, r, g, b;
+    
+    switch (iBpp) {
+        case 4:
+            s = &pData[(y * iPitch) + (x >> 1)];
+            uc = s[0];
+            if ((x & 1) == 0) uc >>= 4;
+            uc &= 0xf;
+            b = ucBlue[uc];
+            g = ucGreen[uc];
+            r = ucRed[uc];
+            break;
+        case 8:
+            s = &pData[(y * iPitch) + x];
+            uc = s[0];
+            b = ucBlue[uc];
+            g = ucGreen[uc];
+            r = ucRed[uc];
+            break;
+        case 24:
+        case 32:
+            s = &pData[(y * iPitch) + ((x * iBpp)>>3)];
+            b = s[0];
+            g = s[1];
+            r = s[2];
+            break;
+    } // switch on bpp
+    gr = (b + r + g*2)>>2; // gray
+    // match the color to closest of black/white/red
+    if (r > g && r > b) { // red is dominant
+        if (gr < 100 && r < 80) {
+            // black
+        } else {
+            if (r-b > 32 && r-g > 32) {
+                // is red really dominant?
+                ucOut |= 2; // red
+            } else { // yellowish should be white
+                // no, use white instead of pink/yellow
+                ucOut |= 1;
+            }
+        }
+    } else { // check for white/black
+        if (gr >= 100) {
+            ucOut |= 1; // white
+        } else {
+            // black
+        }
+    }
+    return ucOut;
+} /* GetRedPixel() */
+//
+// Return the given pixel as a 2-bit grayscale value
+//
 unsigned char GetGrayPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
 {
     uint8_t uc, *s;
@@ -169,7 +292,7 @@ unsigned char GetGrayPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
     return uc;
 } /* GetGrayPixel() */
 //
-// Convert 2-bit grayscale (4GRAY) into 2-plane output
+// Convert 2-bit grayscale (4GRAY) into hex 2-plane output
 //
 void MakeC_4GRAY(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp, int iSize, FILE *ohandle, char *szLeaf)
 {
@@ -202,11 +325,12 @@ void MakeC_4GRAY(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp,
                     i++;
                     iLine++;
                     fprintf(ohandle, "0x%02x", uc);
-                    if (iLine == BYTES_PER_LINE || i == iTotal-1) {
+                    if (i != iTotal) {
+                        fprintf(ohandle, ",");
+                    }
+                    if (iLine == BYTES_PER_LINE) {
                         fprintf(ohandle, "\n");
                         iLine = 0;
-                    } else {
-                        fprintf(ohandle, ",");
                     }
                     uc = 0;
                 } // if a whole byte was formed
@@ -215,6 +339,57 @@ void MakeC_4GRAY(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp,
         fprintf(ihandle, "};\n"); // final closing brace
     } // for each plane
 } /* MakeC_4GRAY() */
+//
+// Convert BWR/BWY into 2-plane output
+//
+void MakeC_3CLR(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp, int iSize, FILE *ohandle, char *szLeaf, int iType)
+{
+    int iSrcPitch, iPitch;
+    int i, iPlane, x, y, iIn, iTotal, iLine;
+    uint8_t ucPixel, uc, *s = &pSrc[iOffBits];
+
+    iSrcPitch = ((iBpp * iWidth) + 7)/8;
+    iSrcPitch = (iSrcPitch + 3) & 0xfffc; // Windows BMP lines are dword aligned
+    iPitch = (iWidth + 7)/8; // bytes per line of each 1-bpp plane
+    iTotal = iPitch * iHeight; // how many bytes we're creating
+    // show pitch
+    fprintf(ohandle, "// Image size: width %d, height %d\n", iWidth, iHeight);
+    fprintf(ohandle, "// %d bytes per line\n", iPitch);
+    fprintf(ohandle, "// %d bytes per plane\n", iTotal);
+    for (iPlane=0; iPlane<2; iPlane++) {
+        fprintf(ohandle, "// Plane %d data\n", iPlane);
+        fprintf(ohandle, "const uint8_t %s_%d[] PROGMEM = {\n", szLeaf, iPlane);
+        iLine = i = iIn = 0;
+        for (y=0; y<iHeight; y++) {
+            uc = 0;
+            for (x=0; x<iWidth; x++) {
+                if (iType == OPTION_BWR)
+                    ucPixel = GetRedPixel(x, y, s, iSrcPitch, iBpp); // slower, but easier on the eyes
+                else
+                    ucPixel = GetYellowPixel(x, y, s, iSrcPitch, iBpp);
+                uc <<= 1;
+                uc |= ((ucPixel >> iPlane) & 1); // add correct plane's bit
+                if ((x & 7) == 7 || x == iWidth-1) {
+                    if ((x & 7) != 7) { // adjust last odd byte
+                        uc <<= (7-(x&7));
+                    }
+                    i++;
+                    iLine++;
+                    fprintf(ohandle, "0x%02x", uc);
+                    if (i != iTotal) {
+                        fprintf(ohandle, ",");
+                    }
+                    if (iLine == BYTES_PER_LINE) {
+                        fprintf(ohandle, "\n");
+                        iLine = 0;
+                    }
+                    uc = 0;
+                } // if a whole byte was formed
+            } // for x
+        } // for y
+        fprintf(ihandle, "};\n"); // final closing brace
+    } // for each plane
+} /* MakeC_3CLR() */
 //
 // flip image vertically
 //
@@ -327,8 +502,8 @@ int main(int argc, char *argv[])
                MakeC_BW(p, iOffBits, iWidth, iHeight, iSize, ihandle, szLeaf); // create the output data
 	    break;
 	    case OPTION_BWR:
-	    break;
 	    case OPTION_BWY:
+            MakeC_3CLR(p, iOffBits, iWidth, iHeight, iBpp, iSize, ihandle, szLeaf, iOption);
 	    break;
 	    case OPTION_4GRAY:
 	       MakeC_4GRAY(p, iOffBits, iWidth, iHeight, iBpp, iSize, ihandle, szLeaf);
