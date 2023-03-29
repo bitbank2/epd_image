@@ -22,6 +22,7 @@ enum
   OPTION_BW = 0,
   OPTION_BWR,
   OPTION_BWY,
+  OPTION_BWYR,
   OPTION_4GRAY,
   OPTION_COUNT
 };
@@ -29,7 +30,7 @@ enum
 #define BYTES_PER_LINE 16
 
 // Output format options (black & white, black/white/red, black/white/yellow, 2-bit grayscale)
-const char *szOptions[] = {"BW", "BWR", "BWY", "4GRAY", NULL};
+const char *szOptions[] = {"BW", "BWR", "BWY", "BWYR", "4GRAY", NULL};
 uint8_t ucBlue[256], ucGreen[256], ucRed[256]; // palette colors
 #ifdef _WIN32
 #define SLASH_CHAR '\\'
@@ -245,6 +246,65 @@ unsigned char GetRedPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
     return ucOut;
 } /* GetRedPixel() */
 //
+// Match the given pixel to black (00), white (01), yellow (10), or red (11)
+// returns 2 bit value of closest matching color
+//
+unsigned char GetBWYRPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
+{
+    uint8_t ucOut=0, uc, *s;
+    int gr, r, g, b;
+    
+    switch (iBpp) {
+        case 4:
+            s = &pData[(y * iPitch) + (x >> 1)];
+            uc = s[0];
+            if ((x & 1) == 0) uc >>= 4;
+            uc &= 0xf;
+            b = ucBlue[uc];
+            g = ucGreen[uc];
+            r = ucRed[uc];
+            break;
+        case 8:
+            s = &pData[(y * iPitch) + x];
+            uc = s[0];
+            b = ucBlue[uc];
+            g = ucGreen[uc];
+            r = ucRed[uc];
+            break;
+        case 24:
+        case 32:
+            s = &pData[(y * iPitch) + ((x * iBpp)>>3)];
+            b = s[0];
+            g = s[1];
+            r = s[2];
+            break;
+    } // switch on bpp
+    gr = (b + r + g*2)>>2; // gray
+    // match the color to closest of black/white/yellow/red
+    if (r > b || g > b) { // red or yellow is dominant
+        if (gr < 100 && r < 80 && g < 80) {
+            // black
+        } else {
+            if (r-b > 32 && r-g > 32) {
+                // is red really dominant?
+                ucOut = 3; // red
+            } else if (r-b > 32 && g-b > 32) {
+                // yes, yellow
+                ucOut = 2;
+            } else {
+                ucOut = 1; // gray/white
+            }
+        }
+    } else { // check for white/black
+        if (gr >= 100) {
+            ucOut = 1; // white
+        } else {
+            // black
+        }
+    }
+    return ucOut;
+} /* GetBWYRPixel() */
+//
 // Return the given pixel as a 2-bit grayscale value
 //
 unsigned char GetGrayPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
@@ -339,6 +399,51 @@ void MakeC_4GRAY(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp,
         fprintf(ihandle, "};\n"); // final closing brace
     } // for each plane
 } /* MakeC_4GRAY() */
+//
+// Convert to Black/White/Yellow/Red packed 1-plane output
+//
+void MakeC_4CLR(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp, int iSize, FILE *ohandle, char *szLeaf)
+{
+    int iSrcPitch, iPitch;
+    int i, x, y, iIn, iTotal, iLine;
+    uint8_t ucPixel, uc, *s = &pSrc[iOffBits];
+
+    iSrcPitch = ((iBpp * iWidth) + 7)/8;
+    iSrcPitch = (iSrcPitch + 3) & 0xfffc; // Windows BMP lines are dword aligned
+    iPitch = (iWidth + 3)/4; // bytes per line of the 2-bpp plane
+    iTotal = iPitch * iHeight; // how many bytes we're creating
+    // show pitch
+    fprintf(ohandle, "// Image size: width %d, height %d\n", iWidth, iHeight);
+    fprintf(ohandle, "// %d bytes per line\n", iPitch);
+    fprintf(ohandle, "// %d bytes total\n", iTotal);
+    fprintf(ohandle, "const uint8_t %s[] PROGMEM = {\n", szLeaf);
+    iLine = i = iIn = 0;
+    for (y=0; y<iHeight; y++) {
+        uc = 0;
+        for (x=0; x<iWidth; x++) {
+            ucPixel = GetBWYRPixel(x, y, s, iSrcPitch, iBpp); // slower, but easier on the eyes
+            uc <<= 2;
+            uc |= ucPixel; // pack 2 bits at a time into each byte
+            if ((x & 3) == 3 || x == iWidth-1) { // store new bytes every 4 pixels
+                if ((x & 3) != 3) { // adjust last odd byte
+                    uc <<= ((3-(x&3))*2);
+                }
+                i++;
+                iLine++;
+                fprintf(ohandle, "0x%02x", uc);
+                if (i != iTotal) {
+                    fprintf(ohandle, ",");
+                }
+                if (iLine == BYTES_PER_LINE) {
+                    fprintf(ohandle, "\n");
+                    iLine = 0;
+                }
+                uc = 0;
+            } // if a whole byte was formed
+        } // for x
+    } // for y
+    fprintf(ihandle, "};\n"); // final closing brace
+} /* MakeC_4CLR() */
 //
 // Convert BWR/BWY into 2-plane output
 //
@@ -505,6 +610,9 @@ int main(int argc, char *argv[])
 	    case OPTION_BWY:
             MakeC_3CLR(p, iOffBits, iWidth, iHeight, iBpp, iSize, ihandle, szLeaf, iOption);
 	    break;
+        case OPTION_BWYR:
+            MakeC_4CLR(p, iOffBits, iWidth, iHeight, iBpp, iSize, ihandle, szLeaf);
+            break;
 	    case OPTION_4GRAY:
 	       MakeC_4GRAY(p, iOffBits, iWidth, iHeight, iBpp, iSize, ihandle, szLeaf);
 	    break;
