@@ -15,7 +15,11 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef _WIN32
+#include <direct.h>
+#else
 #include <unistd.h>
+#endif
 
 enum
 {
@@ -139,7 +143,7 @@ void MakeC_BW(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iSize, F
 unsigned char GetYellowPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
 {
     uint8_t uc=0, *s;
-    int gr, r, g, b;
+    int gr, r=0, g=0, b=0;
     
     switch (iBpp) {
         case 4:
@@ -195,7 +199,7 @@ unsigned char GetYellowPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
 unsigned char GetRedPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
 {
     uint8_t ucOut=0, uc, *s;
-    int gr, r, g, b;
+    int gr=0, r=0, g=0, b=0;
     
     switch (iBpp) {
         case 4:
@@ -251,8 +255,8 @@ unsigned char GetRedPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
 //
 unsigned char GetBWYRPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
 {
-    uint8_t ucOut=0, uc, *s;
-    int gr, r, g, b;
+    uint8_t ucOut=0, uc=0, *s;
+    int gr=0, r=0, g=0, b=0;
     
     switch (iBpp) {
         case 4:
@@ -309,8 +313,8 @@ unsigned char GetBWYRPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
 //
 unsigned char GetGrayPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
 {
-    uint8_t uc, *s;
-    int r, g, b;
+    uint8_t uc=0, *s;
+    int r=0, g=0, b=0;
     
     switch (iBpp) {
         case 1:
