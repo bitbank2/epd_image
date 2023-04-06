@@ -45,23 +45,8 @@ uint8_t ucBlue[256], ucGreen[256], ucRed[256]; // palette colors
 FILE * ihandle;
 void GetLeafName(char *fname, char *leaf);
 void FixName(char *name);
+unsigned char GetGrayPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp);
 
-int ParseNumber(unsigned char *buf, int *iOff, int iLength)
-{
-    int i, iOffset;
-    
-    i = 0;
-    iOffset = *iOff;
-    
-    while (iOffset < iLength && buf[iOffset] >= '0' && buf[iOffset] <= '9')
-    {
-        i *= 10;
-        i += (int)(buf[iOffset++] - '0');
-    }
-    *iOff = iOffset+1; /* Skip ending char */
-    return i;
-    
-} /* ParseNumber() */
 //
 // Parse the BMP header and read the pixel data into memory
 // returns 1 for success, 0 for failure
@@ -101,40 +86,48 @@ int ReadBMP(uint8_t *pBMP, int *offbits, int *width, int *height, int *bpp)
     return 1;
 } /* ReadBMP() */
 //
-// Create 1 memory plane hex output from 1-bit per pixel input
+// Create 1 memory plane hex output
 //
-void MakeC_BW(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iSize, FILE *ohandle, char *szLeaf)
+void MakeC_BW(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp, int iSize, FILE *ohandle, char *szLeaf)
 {
-	int iSrcPitch, iPitch, iDelta;
-        int iIn, iTotal, iLine, iOut;
-	uint8_t *s = &pSrc[iOffBits];
+	int x, y, iSrcPitch, iPitch;
+    int iIn, iTotal, i, iLine;
+	uint8_t uc, ucPixel, *s = &pSrc[iOffBits];
 
-	iSrcPitch = iPitch = (iWidth + 7)/8;
+    iPitch = (iWidth + 7)/8; // output bytes per line
+	iSrcPitch = ((iWidth * iBpp) + 7)/8;
 	iSrcPitch = (iSrcPitch + 3) & 0xfffc; // Windows BMP lines are dword aligned
-	iDelta = iSrcPitch - iPitch;
 	iTotal = iPitch * iHeight; // how many bytes we're creating
 	// show pitch
 	fprintf(ohandle, "// Image size: width %d, height %d\n", iWidth, iHeight);
 	fprintf(ohandle, "// %d bytes per line\n", iPitch);
 	fprintf(ohandle, "// %d bytes per plane\n", iTotal);
     fprintf(ohandle, "const uint8_t %s_0[] PROGMEM = {\n", szLeaf); // start of data array (plane 0)
-    iOut = iLine = iIn = 0;
-    for (int i=0; i<iTotal; i++) {
-        fprintf(ohandle, "0x%02x", (~s[iIn++]) & 0xff); // first plane is inverted
-        if (i != iTotal-1) {
-            fprintf(ohandle, ",");
-        }
-        if (iLine == BYTES_PER_LINE-1) {
-            fprintf(ohandle, "\n");
-            iLine = -1;
-        }
-        iLine++;
-        iOut++;
-        if (iOut == iPitch) {
-            iIn += iDelta;
-            iOut = 0;
-        }
-    } // for i
+    iLine = i = iIn = 0;
+    for (y=0; y<iHeight; y++) {
+        uc = 0;
+        for (x=0; x<iWidth; x++) {
+            ucPixel = GetGrayPixel(x, y, s, iSrcPitch, iBpp); // slower, but easier on the eyes
+            uc <<= 1;
+            uc |= (ucPixel >> 1); // only need MSB
+            if ((x & 7) == 7 || x == iWidth-1) {
+                if ((x & 7) != 7) { // adjust last odd byte
+                    uc <<= (7-(x&7));
+                }
+                i++;
+                iLine++;
+                fprintf(ohandle, "0x%02x", uc);
+                if (i != iTotal) {
+                    fprintf(ohandle, ",");
+                }
+                if (iLine == BYTES_PER_LINE) {
+                    fprintf(ohandle, "\n");
+                    iLine = 0;
+                }
+                uc = 0;
+            } // if a whole byte was formed
+        } // for x
+    } // for y
     fprintf(ihandle, "};\n"); // final closing brace
 } /* MakeC_BW() */
 //
@@ -577,11 +570,6 @@ int main(int argc, char *argv[])
 	    printf("Invalid BMP file, exiting...\n");
 	    return -1;
     }
-    if (iOption == OPTION_BW && iBpp != 1) {
-         printf("Input image for OPTION_BW must be 1-bit per pixel\n");
-	 printf("aborting...\n");
-	 return -1;
-    }
     if (iHeight > 0) FlipBMP(&p[iOffBits], iWidth, iHeight, iBpp); // positive means bottom-up
     else iHeight = -iHeight; // negative means top-down
     GetLeafName(argv[iNameParam], szLeaf);
@@ -608,7 +596,7 @@ int main(int argc, char *argv[])
     fprintf(ihandle, "#ifndef PROGMEM\n#define PROGMEM\n#endif\n");
     switch (iOption) {
 	    case OPTION_BW:
-               MakeC_BW(p, iOffBits, iWidth, iHeight, iSize, ihandle, szLeaf); // create the output data
+               MakeC_BW(p, iOffBits, iWidth, iHeight, iBpp, iSize, ihandle, szLeaf); // create the output data
 	    break;
 	    case OPTION_BWR:
 	    case OPTION_BWY:
