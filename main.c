@@ -30,6 +30,22 @@ enum
   OPTION_4GRAY,
   OPTION_COUNT
 };
+enum
+{
+    PRODUCT_GDEW0154M10=0,
+    PRODUCT_GDEY0213B74,
+    PRODUCT_GDEY0266T90,
+    PRODUCT_GDEY027T91,
+    PRODUCT_GDEY037T03,
+    PRODUCT_GDEQ042Z21,
+    PRODUCT_GDEY0579T93,
+    PRODUCT_GDEY075T7,
+    PRODUCT_COUNT
+};
+const char *szProducts[] = {"GDEW0154M10", "GDEY0213B74", "GDEY0266T90", "GDEY027T91", "GDEY037T03", "GDEQ042Z21", "GDEY0579T93", "GDEY075T7"};
+int iProdWidth[] = {152,122,152,176,240,400,792,800};
+int iProdHeight[] = {152,250,296,264,416,300,272,480};
+int iProdPixels[] = {OPTION_BW,OPTION_BW,OPTION_BW,OPTION_BW,OPTION_BW,OPTION_BWR,OPTION_BW,OPTION_BWR};
 // How many hex bytes are written per line of output
 #define BYTES_PER_LINE 16
 
@@ -46,6 +62,24 @@ FILE * ihandle;
 void GetLeafName(char *fname, char *leaf);
 void FixName(char *name);
 unsigned char GetGrayPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp);
+/* Table to flip the bit direction of a byte */
+const uint8_t ucMirror[256]=
+     {0, 128, 64, 192, 32, 160, 96, 224, 16, 144, 80, 208, 48, 176, 112, 240,
+      8, 136, 72, 200, 40, 168, 104, 232, 24, 152, 88, 216, 56, 184, 120, 248,
+      4, 132, 68, 196, 36, 164, 100, 228, 20, 148, 84, 212, 52, 180, 116, 244,
+      12, 140, 76, 204, 44, 172, 108, 236, 28, 156, 92, 220, 60, 188, 124, 252,
+      2, 130, 66, 194, 34, 162, 98, 226, 18, 146, 82, 210, 50, 178, 114, 242,
+      10, 138, 74, 202, 42, 170, 106, 234, 26, 154, 90, 218, 58, 186, 122, 250,
+      6, 134, 70, 198, 38, 166, 102, 230, 22, 150, 86, 214, 54, 182, 118, 246,
+      14, 142, 78, 206, 46, 174, 110, 238, 30, 158, 94, 222, 62, 190, 126, 254,
+      1, 129, 65, 193, 33, 161, 97, 225, 17, 145, 81, 209, 49, 177, 113, 241,
+      9, 137, 73, 201, 41, 169, 105, 233, 25, 153, 89, 217, 57, 185, 121, 249,
+      5, 133, 69, 197, 37, 165, 101, 229, 21, 149, 85, 213, 53, 181, 117, 245,
+      13, 141, 77, 205, 45, 173, 109, 237, 29, 157, 93, 221, 61, 189, 125, 253,
+      3, 131, 67, 195, 35, 163, 99, 227, 19, 147, 83, 211, 51, 179, 115, 243,
+      11, 139, 75, 203, 43, 171, 107, 235, 27, 155, 91, 219, 59, 187, 123, 251,
+      7, 135, 71, 199, 39, 167, 103, 231, 23, 151, 87, 215, 55, 183, 119, 247,
+      15, 143, 79, 207, 47, 175, 111, 239, 31, 159, 95, 223, 63, 191, 127, 255};
 
 //
 // Parse the BMP header and read the pixel data into memory
@@ -493,6 +527,113 @@ void MakeC_3CLR(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp, 
     } // for each plane
 } /* MakeC_3CLR() */
 //
+// mirror image horizontally
+//
+void MirrorBMP(uint8_t *pPixels, int iWidth, int iHeight, int iBpp)
+{
+    int y;
+    uint8_t c1,c2,c3, *s, *d;
+    uint32_t lTemp, *ld, *ls;
+    int x, iPitch;
+
+       iPitch = ((iWidth * iBpp) + 7)/8;
+       iPitch = (iPitch + 3) & 0xfffc;
+       switch (iBpp)
+          {
+          case 1:
+                  if ((iWidth & 7) == 0) { // multiple of 8 wide
+                      for (y=0; y<iHeight; y++)
+                      {
+                          s = &pPixels[y * iPitch];
+                          d = s + (iWidth>>3) - 1;
+                          x = iWidth >> 4;
+                          while (x)
+                          {
+                              c1 = ucMirror[*s];
+                              c2 = ucMirror[*d];
+                              *s++ = c2;
+                              *d-- = c1;
+                              x--;
+                          }
+                      }
+                  } else {
+                      // DEBUG
+                  }
+             break;
+          case 4:
+             for (y=0; y<iHeight; y++)
+                {
+                s = &pPixels[y * iPitch];
+                d = s + (iWidth>>1) - 1;
+                x = iWidth >> 2;
+                while (x)
+                   {
+                   c1 = *s;
+                   c2 = *d;
+                   c1 = (c1 << 4) | (c1 >> 4);
+                   c2 = (c2 << 4) | (c2 >> 4);
+                   *s++ = c2;
+                   *d-- = c1;
+                   x--;
+                   }
+                }
+             break;
+          case 8:
+             for (y=0; y<iHeight; y++)
+                {
+                s = &pPixels[y * iPitch];
+                d = s + iWidth - 1;
+                    x = iWidth >> 1;
+                    while (x)
+                       {
+                       c1 = *s;
+                       *s++ = *d;
+                       *d-- = c1;
+                       x--;
+                       }
+                    }
+                 break;
+              case 24:
+                  for (y=0; y<iHeight; y++)
+                    {
+                    s = &pPixels[y * iPitch];
+                    d = s + (iWidth - 1)*3;
+                    x = iWidth >> 1;
+                    while (x)
+                       {
+                       c1 = s[0];
+                       c2 = s[1];
+                       c3 = s[2];
+                           s[0] = d[0];
+                           s[1] = d[1];
+                           s[2] = d[2];
+                           s += 3;
+                           d[0] = c1;
+                           d[1] = c2;
+                           d[2] = c3;
+                           d -= 3;
+                           x--;
+                           }
+                        }
+                     break;
+                  case 32:
+                  for (y=0; y<iHeight; y++)
+                    {
+                        ls = (uint32_t *)&pPixels[y * iPitch];
+                        ld = ls + iWidth - 1;
+                        x = iWidth >> 1;
+                        while (x)
+                           {
+                           lTemp = *ls;
+                           *ls++ = *ld;
+                           *ld-- = lTemp;
+                           x--;
+                           }
+                        }
+                     break;
+                  }
+} /* MirrorBMP() */
+//
 // flip image vertically
 //
 void FlipBMP(uint8_t *p, int iWidth, int iHeight, int iBpp)
@@ -515,6 +656,64 @@ uint8_t c, *s, *d;
 	}
 } /* FlipBMP() */
 
+void RotateImage(int iRotation, uint8_t *pPixels, int *iWidth, int *iHeight, int iBpp)
+{
+    uint8_t *pTemp, *s, *d, x, y;
+    int w = *iWidth, h = *iHeight;
+    int iSrcPitch, iDstPitch;
+    
+    if (iRotation == 0) return; // nothing to do
+    if (iRotation == 180) {
+        FlipBMP(pPixels, w, h, iBpp);
+        MirrorBMP(pPixels, w, h, iBpp);
+        return;
+    }
+    iSrcPitch = ((w * iBpp)+7)/8;
+    iSrcPitch = (iSrcPitch + 3) & 0xfffc; // dword aligned
+    iDstPitch = ((h * iBpp)+7)/8;
+    iDstPitch = (iDstPitch + 3) & 0xfffc;
+    switch (iBpp) {
+        case 1:
+            break;
+        case 4:
+            pTemp = (uint8_t *) malloc((w+2) * iDstPitch);
+            s = pPixels;
+            for (y = 0; y < h; y+=2)
+            {
+                uint8_t c1, c2, c3;
+                d = pTemp - y + (w - 1)/2; /* Start at right edge */
+                for (x=0; x < (h+1)>>1; x++)
+                {
+                    c1 = *s;
+                    c2 = s[iSrcPitch];
+                    s++;
+                    c3 = (c1 >> 4) | (c2 & 0xf0); /* swap pixels */
+                    c2 = (c2 << 4) | (c1 & 0xf);
+                    *d = c3;
+                    d[iDstPitch] = c2;
+                    d += iDstPitch * 2;
+                }
+                s += (iSrcPitch * 2);
+            }
+            memcpy(pPixels, pTemp, iDstPitch * w);
+            free(pTemp);
+            break;
+        case 8:
+            break;
+        case 24:
+        case 32:
+            break;
+    }
+    if (iRotation == 270) {
+        FlipBMP(pPixels, h, w, iBpp);
+        MirrorBMP(pPixels, h, w, iBpp);
+    }
+    if (iRotation == 90 || iRotation == 270) { // swap width/height
+        x = *iWidth;
+        *iWidth = *iHeight;
+        *iHeight = x;
+    }
+} /* RotateImage() */
 //
 // Main program entry point
 //
@@ -523,34 +722,66 @@ int main(int argc, char *argv[])
     int iSize;
     int iOffBits, iWidth, iHeight, iBpp;
     int iNameParam = 1;
+    int iRotation = 0;
+    int iProduct = -1; // matching to a Good Display product type
     int iOption = OPTION_BW; // default
+    int bMirror = 0, bFlipv = 0, bInvert = 0;
     unsigned char *p;
     char szLeaf[256];
     char szOutName[256];
     
-    if (argc < 3 || argc > 4)
+    if (argc < 3 || argc > 5)
     {
         printf("epd_image Copyright (c) 2023 BitBank Software, Inc.\n");
         printf("Written by Larry Bank\n\n");
-        printf("Usage: epd_image <option> <infile> <outfile>\n");
+        printf("Usage: epd_image <options> <infile> <outfile>\n");
         printf("example:\n\n");
         printf("epd_image --BW ./test.bmp test.h\n");
-	printf("valid options (defaults to BW):\n");
-	printf("BW = create output for black/white displays\n");
-	printf("BWR = create output for black/white/red displays\n");
-	printf("BWY = create output for black/white/yellow displays\n");
-	printf("4GRAY = create output for 2-bit grayscale displays\n");
+        printf("valid options (defaults to BW, no rotation):\n");
+        printf("<Good Display product number> e.g. GEDY0213B74\n    this will set the correct size/color/rotation options\n");
+        printf("BW = create output for black/white displays\n");
+        printf("BWR = create output for black/white/red displays\n");
+        printf("BWY = create output for black/white/yellow displays\n");
+        printf("BWYR = create output for black/white/yellow/red displays\n");
+        printf("4GRAY = create output for 2-bit grayscale displays\n");
+        printf("ROTATE <degrees> = rotate the image clockwise by N degrees\n");
+        printf("MIRROR = mirror the image horizontally\n");
+        printf("FLIPV = flip the image vertically\n");
+        printf("INVERT = invert the colors\n");
+
         return 0; // no filename passed
     }
-    if (argv[1][0] == '-') { // check option
-
-       while (iOption < OPTION_COUNT && strcmp(&argv[1][2], szOptions[iOption]) != 0) {
-          iOption++;
-       }
-       if (iOption == OPTION_COUNT) { // unrecognized option
-	       printf("Invalid option: %s\n", argv[1]);
-	       return -1;
-       }
+    while (argv[iNameParam][0] == '-') { // check options
+        if (memcmp(argv[iNameParam], "--GD", 4) == 0) { // search for product ID match
+            iProduct = 0;
+            while (iProduct < PRODUCT_COUNT && strcmp(&argv[iNameParam][2], szProducts[iProduct]) != 0) {
+                iProduct++;
+            }
+            if (iProduct == PRODUCT_COUNT) { // unrecognized e-paper
+                printf("Invalid option: %s\n", argv[iNameParam]);
+                return -1;
+            }
+        } else if (strcmp(argv[iNameParam], "ROTATE") == 0) {
+            iRotation = atoi(&argv[iNameParam][2]);
+            if (iRotation % 90 != 0) {
+                printf("Rotation angle must be 0, 90, 180 or 270\n");
+                return -1;
+            }
+        } else if (strcmp(argv[iNameParam], "MIRROR") == 0) {
+            bMirror = 1;
+        } else if (strcmp(argv[iNameParam], "FLIPV") == 0) {
+            bFlipv = 1;
+        } else if (strcmp(argv[iNameParam], "INVERT") == 0) {
+            bInvert = 1;
+        } else {
+            while (iOption < OPTION_COUNT && strcmp(&argv[iNameParam][2], szOptions[iOption]) != 0) {
+                iOption++;
+            }
+            if (iOption == OPTION_COUNT) { // unrecognized option
+                printf("Invalid option: %s\n", argv[iNameParam]);
+                return -1;
+            }
+        }
        iNameParam++;
     }
     ihandle = fopen(argv[iNameParam],"rb"); // open input file
@@ -572,6 +803,25 @@ int main(int argc, char *argv[])
     }
     if (iHeight > 0) FlipBMP(&p[iOffBits], iWidth, iHeight, iBpp); // positive means bottom-up
     else iHeight = -iHeight; // negative means top-down
+    if (iProduct != -1) { // use the specific type info
+        iOption = iProdPixels[iProduct];
+        if (iProdWidth[iProduct] < iProdHeight[iProduct] && iWidth > iHeight) { // needs rotation
+            iRotation += 90;
+        }
+        // DEBUG - future add auto scaling
+    }
+    if (bMirror) {
+        MirrorBMP(&p[iOffBits], iWidth, iHeight, iBpp);
+    }
+    if (bFlipv) {
+        FlipBMP(&p[iOffBits], iWidth, iHeight, iBpp);
+    }
+    if (bInvert) {
+        for (int i=0; i<(iSize - iOffBits); i++) {
+            p[iOffBits + i] = ~p[iOffBits + i];
+        }
+    }
+    RotateImage(iRotation, &p[iOffBits], &iWidth, &iHeight, iBpp);
     GetLeafName(argv[iNameParam], szLeaf);
     if (argv[iNameParam+1][0] != SLASH_CHAR) { // need to form full name
        if (getcwd(szOutName, sizeof(szOutName))) {
