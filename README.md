@@ -1,25 +1,15 @@
 epd_image
 ---------
 
-A command line tool for preparing bitmap images intended to be displayed on e-paper 2 or 3 color panels. The output is an array of unsigned chars and is sent to stdout. Included are comments detailing the image type, size and other details.<br>
+A command line tool for preparing bitmap images intended to be displayed on e-paper 2, 3 and 4 color panels. The output is an array of unsigned chars and is written as 1 or 2 separate bit planes depending on the desired output.<br>
 <br>
 <b>Why did you write it?</b><br>
-My existing tool (bin_to_c) is similar in that it generates C arrays to compile file data directly into a project. I have used this tool to create many .H files to include with my projects, but the filename alone isn't enough to know the details of the image file contained in the data. Instead of manually adding this information to each file, I came up with the idea of combining my imageinfo tool with the bin_to_c tool to make something even more useful.<br>
-<b>What does the output look like?</b><br>
-Here's an example of a before and after of what this new tool does:<br>
+My existing tool (image_to_c) is similar in that it generates C arrays to compile image data directly into a project. This project is different in that it does color matching and bit plane preparations specifically for e-paper displays. For example, in Black/White/Red EPDs, the black/white pixels are stored on memory plane 0 and the Red pixels are stored on memory plane 1. When you specify --BWR as the output type, the input image's pixels will be matched against B/W/R and 2 memory planes of output will be generated. The image data can full the full resolution of the target e-paper or be an icon/sprite. In the image below, A 96x256 BWR image is drawn in 4 positions.
 
-It turns this type of file:<br>
-![Animated GIF](/badger.gif?raw=true "Animated GIF")
+![EPD_IMAGE](/demo.jpg?raw=true "EPD_IMAGE")
 
-Into this type of file:<br>
-![screenshot](/screenshot.png?raw=true "screenshot")
-
-<b>What image file types does it support?</b><br>
-
-PNG, JPEG, BMP, TIFF, GIF, PPM, TARGA, JEDMICS, CALS and PCX<br>
-
-<b>What happens for unrecognized files?</b><br>
-If the file type is not known, it will generate the same C output, but without additional info.<br>
+<br>
+The code is C99 and can be compiled on any POSIX compliant system (Linux/MacOS/Windows).
 
 If you find this code useful, please consider sending a donation or becoming a Github sponsor.
 
