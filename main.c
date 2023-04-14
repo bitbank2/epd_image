@@ -30,22 +30,6 @@ enum
   OPTION_4GRAY,
   OPTION_COUNT
 };
-enum
-{
-    PRODUCT_GDEW0154M10=0,
-    PRODUCT_GDEY0213B74,
-    PRODUCT_GDEY0266T90,
-    PRODUCT_GDEY027T91,
-    PRODUCT_GDEY037T03,
-    PRODUCT_GDEQ042Z21,
-    PRODUCT_GDEY0579T93,
-    PRODUCT_GDEY075T7,
-    PRODUCT_COUNT
-};
-const char *szProducts[] = {"GDEW0154M10", "GDEY0213B74", "GDEY0266T90", "GDEY027T91", "GDEY037T03", "GDEQ042Z21", "GDEY0579T93", "GDEY075T7"};
-int iProdWidth[] = {152,122,152,176,240,400,792,800};
-int iProdHeight[] = {152,250,296,264,416,300,272,480};
-int iProdPixels[] = {OPTION_BW,OPTION_BW,OPTION_BW,OPTION_BW,OPTION_BW,OPTION_BWR,OPTION_BW,OPTION_BWR};
 // How many hex bytes are written per line of output
 #define BYTES_PER_LINE 16
 
@@ -723,7 +707,6 @@ int main(int argc, char *argv[])
     int iOffBits, iWidth, iHeight, iBpp;
     int iNameParam = 1;
     int iRotation = 0;
-    int iProduct = -1; // matching to a Good Display product type
     int iOption = OPTION_BW; // default
     int bMirror = 0, bFlipv = 0, bInvert = 0;
     unsigned char *p;
@@ -738,7 +721,6 @@ int main(int argc, char *argv[])
         printf("example:\n\n");
         printf("epd_image --BW ./test.bmp test.h\n");
         printf("valid options (defaults to BW, no rotation):\n");
-        printf("<Good Display product number> e.g. GEDY0213B74\n    this will set the correct size/color/rotation options\n");
         printf("BW = create output for black/white displays\n");
         printf("BWR = create output for black/white/red displays\n");
         printf("BWY = create output for black/white/yellow displays\n");
@@ -752,16 +734,7 @@ int main(int argc, char *argv[])
         return 0; // no filename passed
     }
     while (argv[iNameParam][0] == '-') { // check options
-        if (memcmp(argv[iNameParam], "--GD", 4) == 0) { // search for product ID match
-            iProduct = 0;
-            while (iProduct < PRODUCT_COUNT && strcmp(&argv[iNameParam][2], szProducts[iProduct]) != 0) {
-                iProduct++;
-            }
-            if (iProduct == PRODUCT_COUNT) { // unrecognized e-paper
-                printf("Invalid option: %s\n", argv[iNameParam]);
-                return -1;
-            }
-        } else if (strcmp(argv[iNameParam], "ROTATE") == 0) {
+        if (strcmp(argv[iNameParam], "ROTATE") == 0) {
             iRotation = atoi(&argv[iNameParam][2]);
             if (iRotation % 90 != 0) {
                 printf("Rotation angle must be 0, 90, 180 or 270\n");
@@ -803,13 +776,6 @@ int main(int argc, char *argv[])
     }
     if (iHeight > 0) FlipBMP(&p[iOffBits], iWidth, iHeight, iBpp); // positive means bottom-up
     else iHeight = -iHeight; // negative means top-down
-    if (iProduct != -1) { // use the specific type info
-        iOption = iProdPixels[iProduct];
-        if (iProdWidth[iProduct] < iProdHeight[iProduct] && iWidth > iHeight) { // needs rotation
-            iRotation += 90;
-        }
-        // DEBUG - future add auto scaling
-    }
     if (bMirror) {
         MirrorBMP(&p[iOffBits], iWidth, iHeight, iBpp);
     }
