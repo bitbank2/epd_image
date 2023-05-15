@@ -306,10 +306,10 @@ unsigned char GetBWYRPixel(int x, int y, uint8_t *pData, int iPitch, int iBpp)
     gr = (b + r + g*2)>>2; // gray
     // match the color to closest of black/white/yellow/red
     if (r > b || g > b) { // red or yellow is dominant
-        if (gr < 100 && r < 80 && g < 80) {
+        if (gr < 90 || (r < 80 && g < 80)) {
             // black
         } else {
-            if (r-b > 32 && r-g > 32) {
+            if (r-b > 32 && r-g > 70) {
                 // is red really dominant?
                 ucOut = 3; // red
             } else if (r-b > 32 && g-b > 32) {
