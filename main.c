@@ -1,4 +1,5 @@
 //
+//
 // epd_image - prepare image data for e-paper displays
 // and output it as hex data ready to compile into c code
 //
@@ -853,7 +854,7 @@ uint8_t * DitherBMP(uint8_t *pPixels, int iWidth, int iHeight, int *pBpp, int iO
     int x, y, xmask, iDestPitch;
     int32_t cNew, lFErr, lFErrR, lFErrG, lFErrB, v=0, h;
     int32_t e1,e2,e3,e4;
-    uint8_t cOut; // forward errors for gray
+    uint8_t cOut;
     uint8_t *pDest, *errors, *pErrors=NULL, *d; // destination 8bpp image
     uint8_t pixelmask=0, shift=0;
     uint8_t ucTemp[1024];
@@ -906,10 +907,48 @@ uint8_t * DitherBMP(uint8_t *pPixels, int iWidth, int iHeight, int *pBpp, int iO
             } // for x
             if (iWidth & 7) {
                 cOut <<= (8-(x & 7));
-                *d++ = ~cOut; // store partial byte
+                *d++ = cOut; // store partial byte
             }
         } // for y
         *pBpp = 1; // now it's 1-bit per pixel
+        return pDest;
+    } else if (iOutFormat == OPTION_4GRAY) {
+        iDestPitch = (iWidth+3) & 0xfffc;
+        pDest = (uint8_t *)malloc(iDestPitch * iHeight); // create grayscale output
+        for (y=0; y<iHeight; y++)
+        {
+            d = &pDest[y * iDestPitch];
+            pErrors = &errors[1]; // point to second pixel to avoid boundary check
+            lFErr = 0;
+            for (x=0; x<iWidth; x++)
+            {
+                cNew = GetGrayPixel8(x, y, pPixels, iSrcPitch, iBpp); // get grayscale uint8_t pixel
+                cNew = (cNew * 2)/3; // make white end of spectrum less "blown out"
+                // add forward error
+                cNew += lFErr;
+                if (cNew > 255) cNew = 255;     // clip to uint8_t
+                *d++ = (uint8_t)cNew;
+                // calculate the Floyd-Steinberg error for this pixel
+                v = cNew - (cNew & 0xc0); // new error for 2-bit gray output (always positive)
+                h = v >> 1;
+                e1 = (7*h)>>3;  // 7/16
+                e2 = h - e1;  // 1/16
+                e3 = (5*h) >> 3;   // 5/16
+                e4 = h - e3;  // 3/16
+                // distribute error to neighbors
+                lFErr = e1 + pErrors[1];
+                pErrors[1] = (uint8_t)e2;
+                pErrors[0] += e3;
+                pErrors[-1] += e4;
+                pErrors++;
+            } // for x
+        } // for y
+        for (y=0; y<256; y++) {
+            ucRed[y] = y;
+            ucGreen[y] = y;
+            ucBlue[y] = y; // create grayscale palette
+        }
+        *pBpp = 8; // now it's 8-bit per pixel
         return pDest;
     } else { // black/white/red/yellow
         int32_t *pErr, iDelta;
