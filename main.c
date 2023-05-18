@@ -1028,7 +1028,7 @@ uint8_t * ReadJPEG(uint8_t *pData, int iSize, int *pWidth, int *pHeight, int *pB
     if (rc) {
         *pBpp = jpg.ucBpp;
         *pWidth = jpg.iWidth;
-        *pHeight = jpg.iHeight;
+        *pHeight = 0-jpg.iHeight; // negative because it will be seen as a WinBMP height
         if (jpg.ucBpp == 8) {
             // create a fake grayscale palette
             for (int i=0; i<256; i++) {
