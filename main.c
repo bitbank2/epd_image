@@ -32,7 +32,7 @@
 
 #define __LINUX__
 #include "JPEGDEC.h"
-#include "/Users/laurencebank/Projects/epd_image/jpeg.c"
+#include "jpeg.inl"
 
 enum
 {
@@ -1022,7 +1022,6 @@ int JPEGDraw(JPEGDRAW *pDraw)
 uint8_t * ReadJPEG(uint8_t *pData, int iSize, int *pWidth, int *pHeight, int *pBpp)
 {
     int rc;
-    uint8_t *pImage = NULL;
     JPEGIMAGE jpg;
     
     rc = JPEG_openRAM(&jpg, pData, iSize, JPEGDraw);
@@ -1044,7 +1043,7 @@ uint8_t * ReadJPEG(uint8_t *pData, int iSize, int *pWidth, int *pHeight, int *pB
         }
         rc = JPEG_decode(&jpg, 0, 0, 0); // full size decode
     }
-    return pImage;
+    return jpg.pUser;
 } /* ReadJPEG() */
 //
 // Main program entry point
