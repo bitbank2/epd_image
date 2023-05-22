@@ -447,7 +447,7 @@ void MakeC_4GRAY(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp,
     fprintf(ohandle, "// %d bytes per plane\n", iTotal);
     for (iPlane=0; iPlane<2; iPlane++) {
         fprintf(ohandle, "// Plane %d data\n", iPlane);
-        fprintf(ohandle, "const uint8_t %s_%d[] PROGMEM = {\n", szLeaf, iPlane);
+        fprintf(ohandle, "const uint8_t %s_%d[] PROGMEM = {\n", szLeaf, 1-iPlane); // MSB is plane 0 in the UC8151, so reverse the plane number
         iLine = i = iIn = 0;
         for (y=0; y<iHeight; y++) {
             uc = 0;
