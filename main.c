@@ -56,6 +56,7 @@ uint8_t ucBlue[256], ucGreen[256], ucRed[256]; // palette colors
 #define SLASH_CHAR '/'
 #endif
 int iWidth, iHeight, iBpp;
+int bMSBFirst = 1;
 FILE * ihandle;
 void GetLeafName(char *fname, char *leaf);
 void FixName(char *name);
@@ -136,6 +137,10 @@ void MakeC_BW(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp, in
 	fprintf(ohandle, "// Image size: width %d, height %d\n", iWidth, iHeight);
 	fprintf(ohandle, "// %d bytes per line\n", iPitch);
 	fprintf(ohandle, "// %d bytes per plane\n", iTotal);
+        if (bMSBFirst)
+           fprintf(ohandle, "// MSB on the left\n");
+        else
+           fprintf(ohandle, "// LSB on the left\n");
     fprintf(ohandle, "const uint8_t %s_0[] PROGMEM = {\n", szLeaf); // start of data array (plane 0)
     iLine = i = iIn = 0;
     for (y=0; y<iHeight; y++) {
@@ -143,13 +148,14 @@ void MakeC_BW(uint8_t *pSrc, int iOffBits, int iWidth, int iHeight, int iBpp, in
         for (x=0; x<iWidth; x++) {
             ucPixel = GetGrayPixel(x, y, s, iSrcPitch, iBpp); // slower, but easier on the eyes
             uc <<= 1;
-            uc |= (ucPixel >> 1); // only need MSB
+            uc |= (ucPixel >> 1); // only need MSB of 2-bit pair
             if ((x & 7) == 7 || x == iWidth-1) {
                 if ((x & 7) != 7) { // adjust last odd byte
                     uc <<= (7-(x&7));
                 }
                 i++;
                 iLine++;
+                if (bMSBFirst == 0) uc = ucMirror[uc]; // reverse bit direction
                 fprintf(ohandle, "0x%02x", uc);
                 if (i != iTotal) {
                     fprintf(ohandle, ",");
@@ -1116,6 +1122,7 @@ int main(int argc, char *argv[])
         printf("DITHER = use Floyd Steinberg dithering\n");
         printf("ROTATE <degrees> = rotate the image clockwise by N degrees\n");
         printf("MIRROR = mirror the image horizontally\n");
+        printf("LSBFIRST = mirror each byte (LSB on the left), defaults to MSBFIRST\n");
         printf("FLIPV = flip the image vertically\n");
         printf("INVERT = invert the colors\n");
 
@@ -1128,6 +1135,8 @@ int main(int argc, char *argv[])
                 printf("Rotation angle must be 0, 90, 180 or 270\n");
                 return -1;
             }
+        } else if (strcmp(argv[iNameParam], "--LSBFIRST") == 0) {
+            bMSBFirst = 0;
         } else if (strcmp(argv[iNameParam], "--MIRROR") == 0) {
             bMirror = 1;
         } else if (strcmp(argv[iNameParam], "--FLIPV") == 0) {
